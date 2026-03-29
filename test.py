@@ -1,0 +1,13 @@
+from regex_engine2 import match, search
+assert match("abc", "abc")
+assert not match("abc", "abd")
+assert match("a*", ""); assert match("a*", "aaa")
+assert match("a+", "a"); assert not match("a+", "")
+assert match("ab?c", "ac"); assert match("ab?c", "abc")
+assert match("a|b", "a"); assert match("a|b", "b")
+assert match("(ab)*", "abab")
+assert match(".", "x"); assert not match(".", "")
+assert match("a.c", "abc"); assert match("a.c", "axc")
+r = search("ab+", "xaabbx")
+assert r is not None and r[2] in ("aabb", "ab", "abb")
+print("regex_engine2 tests passed")

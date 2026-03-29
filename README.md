@@ -1,10 +1,3 @@
-# regex-engine2
-
-Single-file Python CLI. Zero dependencies.
-
-## Usage
-
-```bash
-python3 regex_engine2.py
-python3 regex_engine2.py test
-```
+# regex_engine2
+Regex engine — NFA-based, supports *, +, ?, |, ., groups.
+Single-file Python, zero dependencies.
