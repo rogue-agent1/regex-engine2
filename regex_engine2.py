@@ -1,99 +1,141 @@
 #!/usr/bin/env python3
-"""Simple regex engine supporting . * + ? | () character classes."""
+"""regex_engine2 - NFA-based regex engine with Thompson's construction."""
 import sys
 
 class State:
-    _id = 0
-    def __init__(self, accept=False):
-        State._id += 1; self.id = State._id
-        self.accept, self.transitions, self.epsilon = accept, {}, []
+    def __init__(self, label=None):
+        self.label = label  # None = epsilon
+        self.out = []
 
-def char_match(c, pattern_char):
-    if pattern_char == ".": return True
-    return c == pattern_char
+class NFA:
+    def __init__(self, start, accept):
+        self.start = start
+        self.accept = accept
 
-def compile_regex(pattern):
+def char_nfa(c):
+    s, a = State(c), State()
+    s.out.append(a)
+    return NFA(s, a)
+
+def concat_nfa(a, b):
+    a.accept.out.append(b.start)
+    a.accept.label = b.start.label
+    a.accept.out = b.start.out
+    return NFA(a.start, b.accept)
+
+def alt_nfa(a, b):
+    s = State()
+    s.out = [a.start, b.start]
+    accept = State()
+    a.accept.out.append(accept)
+    b.accept.out.append(accept)
+    return NFA(s, accept)
+
+def star_nfa(a):
+    s = State()
+    accept = State()
+    s.out = [a.start, accept]
+    a.accept.out = [a.start, accept]
+    return NFA(s, accept)
+
+def plus_nfa(a):
+    s = State()
+    accept = State()
+    s.out = [a.start]
+    a.accept.out = [a.start, accept]
+    return NFA(s, accept)
+
+def parse_regex(pattern):
     pos = [0]
-    def parse_alt():
-        left = parse_seq()
-        while pos[0] < len(pattern) and pattern[pos[0]] == "|":
-            pos[0] += 1; right = parse_seq()
-            start, end = State(), State(True)
-            start.epsilon = [left[0], right[0]]
-            left[1].accept = False; left[1].epsilon.append(end)
-            right[1].accept = False; right[1].epsilon.append(end)
-            left = (start, end)
+    def expr():
+        left = seq()
+        while pos[0] < len(pattern) and pattern[pos[0]] == '|':
+            pos[0] += 1
+            right = seq()
+            left = alt_nfa(left, right)
         return left
-    def parse_seq():
-        nodes = []
-        while pos[0] < len(pattern) and pattern[pos[0]] not in ")|":
-            nodes.append(parse_atom())
-        if not nodes:
-            s = State(True); return (s, s)
-        result = nodes[0]
-        for n in nodes[1:]:
-            result[1].accept = False; result[1].epsilon.append(n[0])
-            result = (result[0], n[1])
+    def seq():
+        atoms = []
+        while pos[0] < len(pattern) and pattern[pos[0]] not in '|)':
+            atoms.append(atom())
+        if not atoms:
+            s, a = State(), State()
+            s.out.append(a)
+            return NFA(s, a)
+        result = atoms[0]
+        for a in atoms[1:]:
+            result = concat_nfa(result, a)
         return result
-    def parse_atom():
-        if pos[0] < len(pattern) and pattern[pos[0]] == "(":
-            pos[0] += 1; node = parse_alt()
-            if pos[0] < len(pattern) and pattern[pos[0]] == ")": pos[0] += 1
+    def atom():
+        if pattern[pos[0]] == '(':
+            pos[0] += 1
+            r = expr()
+            pos[0] += 1  # ')'
+        elif pattern[pos[0]] == '.':
+            pos[0] += 1
+            r = char_nfa('.')
         else:
-            c = pattern[pos[0]]; pos[0] += 1
-            s, e = State(), State(True)
-            s.transitions[c] = [e]; node = (s, e)
-        if pos[0] < len(pattern) and pattern[pos[0]] in "*+?":
-            q = pattern[pos[0]]; pos[0] += 1
-            start, end = State(), State(True)
-            node[1].accept = False
-            if q in "*?": start.epsilon.append(end)
-            if q in "*+": node[1].epsilon.append(node[0])
-            start.epsilon.append(node[0]); node[1].epsilon.append(end)
-            node = (start, end)
-        return node
-    return parse_alt()
+            r = char_nfa(pattern[pos[0]])
+            pos[0] += 1
+        if pos[0] < len(pattern):
+            if pattern[pos[0]] == '*':
+                pos[0] += 1
+                r = star_nfa(r)
+            elif pattern[pos[0]] == '+':
+                pos[0] += 1
+                r = plus_nfa(r)
+            elif pattern[pos[0]] == '?':
+                pos[0] += 1
+                empty = NFA(State(), State())
+                empty.start.out.append(empty.accept)
+                r = alt_nfa(r, empty)
+        return r
+    return expr()
 
 def epsilon_closure(states):
-    stack = list(states); closure = set(states)
+    stack = list(states)
+    closure = set(states)
     while stack:
         s = stack.pop()
-        for e in s.epsilon:
-            if e not in closure: closure.add(e); stack.append(e)
+        for out in s.out:
+            if s.label is None and out not in closure:
+                closure.add(out)
+                stack.append(out)
     return closure
 
-def match(nfa_start, text):
-    current = epsilon_closure({nfa_start})
-    for c in text:
+def match(nfa, text):
+    current = epsilon_closure({nfa.start})
+    for ch in text:
         next_states = set()
         for s in current:
-            for pat, targets in s.transitions.items():
-                if char_match(c, pat): next_states.update(targets)
+            if s.label == ch or s.label == '.':
+                for out in s.out:
+                    next_states.add(out)
         current = epsilon_closure(next_states)
-        if not current: return False
-    return any(s.accept for s in current)
+    return nfa.accept in current
 
-def main():
-    if len(sys.argv) < 2: print("Usage: regex_engine2.py <demo|test>"); return
-    if sys.argv[1] == "test":
-        State._id = 0
-        nfa = compile_regex("ab")
-        assert match(nfa[0], "ab"); assert not match(nfa[0], "ac")
-        nfa2 = compile_regex("a*b")
-        assert match(nfa2[0], "b"); assert match(nfa2[0], "ab"); assert match(nfa2[0], "aaab")
-        nfa3 = compile_regex("a|b")
-        assert match(nfa3[0], "a"); assert match(nfa3[0], "b"); assert not match(nfa3[0], "c")
-        nfa4 = compile_regex("a+")
-        assert match(nfa4[0], "a"); assert match(nfa4[0], "aaa"); assert not match(nfa4[0], "")
-        nfa5 = compile_regex("ab?c")
-        assert match(nfa5[0], "ac"); assert match(nfa5[0], "abc"); assert not match(nfa5[0], "abbc")
-        nfa6 = compile_regex("(ab)*")
-        assert match(nfa6[0], ""); assert match(nfa6[0], "ab"); assert match(nfa6[0], "abab")
-        print("All tests passed!")
+def fullmatch(pattern, text):
+    nfa = parse_regex(pattern)
+    return match(nfa, text)
+
+def test():
+    assert fullmatch("abc", "abc")
+    assert not fullmatch("abc", "abd")
+    assert fullmatch("a|b", "a")
+    assert fullmatch("a|b", "b")
+    assert not fullmatch("a|b", "c")
+    assert fullmatch("a*", "")
+    assert fullmatch("a*", "aaa")
+    assert fullmatch("a+", "a")
+    assert not fullmatch("a+", "")
+    assert fullmatch("ab?c", "ac")
+    assert fullmatch("ab?c", "abc")
+    assert fullmatch("(a|b)*c", "aababc")
+    assert fullmatch(".+", "xyz")
+    print("OK: regex_engine2")
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        test()
     else:
-        pat = sys.argv[2] if len(sys.argv) > 2 else "a*b"
-        text = sys.argv[3] if len(sys.argv) > 3 else "aaab"
-        nfa = compile_regex(pat)
-        print(f"/{pat}/ matches {text!r}: {match(nfa[0], text)}")
-
-if __name__ == "__main__": main()
+        print("Usage: regex_engine2.py test")

@@ -1,10 +1,11 @@
-# Regex Engine2
+# regex-engine2
 
-A zero-dependency Python CLI tool.
+NFA-based regex engine with Thompson's construction.
 
 ## Usage
 
 ```bash
-python regex_engine2.py test
-python regex_engine2.py demo
+python3 regex_engine2.py test
 ```
+
+Zero dependencies. Python 3.8+.
